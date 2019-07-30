@@ -7,10 +7,6 @@ Vagrant.configure(2) do |config|
   #config.vm.network "forwarded_port", guest: 80, host: 8080
   #config.vm.synced_folder "../data", "/vagrant_data"
 
-  config.vm.provider "virtualbox" do |v|
-   v.memory = 512
-  end
-
   config.vm.provision "shell", inline: <<-SHELL
     set -x
     apt-get update -y && apt upgrade -y
@@ -21,6 +17,9 @@ Vagrant.configure(2) do |config|
   config.vm.define "test", primary: true do |s|
       s.vm.hostname = "test"
       s.vm.network "private_network", ip: "192.168.111.9"
+      s.vm.provider "virtualbox" do |v|
+        v.memory = 512
+      end
       s.vm.provision "shell", inline: <<-SHELL
         
       SHELL
@@ -29,6 +28,9 @@ Vagrant.configure(2) do |config|
   config.vm.define "zabbix", primary: true do |s|
       s.vm.hostname = "zabbix"
       s.vm.network "private_network", ip: "192.168.111.10"
+      s.vm.provider "virtualbox" do |v|
+        v.memory = 512
+      end
       s.vm.provision "shell", inline: <<-SHELL
         # Configura os repositórios do Zabbix no gestor de pacotes
         cd /tmp
@@ -65,6 +67,21 @@ Vagrant.configure(2) do |config|
         systemctl enable zabbix-agent
         systemctl restart zabbix-server
         systemctl restart zabbix-agent
+      SHELL
+  end
+
+  config.vm.define "docker", primary: true do |s|
+      s.vm.hostname = "docker"
+      s.vm.network "private_network", ip: "192.168.111.11"
+      s.vm.provider "virtualbox" do |v|
+        v.memory = 1024
+      end
+      s.vm.provision "shell", inline: <<-SHELL
+        apt-get install -y apt-transport-https ca-certificates curl software-properties-common gnupg2
+        curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add -
+        add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+        apt-get update
+        apt-get install -y docker-ce
       SHELL
   end
   
