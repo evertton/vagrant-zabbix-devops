@@ -82,6 +82,36 @@ Vagrant.configure(2) do |config|
         add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
         apt-get update
         apt-get install -y docker-ce
+
+        useradd ansible
+        echo -e "ansible\nansible" | passwd ansible
+      SHELL
+  end
+  
+  config.vm.define "ansible", primary: true do |s|
+      s.vm.hostname = "ansible"
+      s.vm.network "private_network", ip: "192.168.111.12"
+      s.vm.provider "virtualbox" do |v|
+        v.memory = 512
+      end
+      s.vm.provision "shell", inline: <<-SHELL
+        apt-get install -y dirmngr
+        echo "deb http://ppa.launchpad.net/ansible/ansible/ubuntu trusty main" >> /etc/apt/sources.list.d/ansible.list
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 93C4A3FD7BB9C367
+        apt-get update
+        apt-get install -y ansible
+
+        echo "[dockerservers]" >> /etc/ansible/hosts
+        echo "docker" >> /etc/ansible/hosts
+
+        mkdir /etc/ansible/host_vars
+        echo "ansible_ssh_host: 192.168.111.11" >> /etc/ansible/host_vars/docker
+        echo "ansible_ssh_port: 22" >> /etc/ansible/host_vars/docker
+        echo "ansible_ssh_user: ansible" >> /etc/ansible/host_vars/docker
+        echo "ansible_ssh_private_key_file: /root/.ssh/docker" >> /etc/ansible/host_vars/docker
+
+        ssh-keygen -N ansible -f /root/.ssh/docker
+        sshpass -p ansible ssh-copy-id -i /root/.ssh/docker ansible@192.168.111.11
       SHELL
   end
   
