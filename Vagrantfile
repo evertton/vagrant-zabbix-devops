@@ -214,16 +214,16 @@ server {
     error_log off;
 
     location / {
-      try_files maintain.html \$uri \$uri/index.html @node;
+      try_files maintain.html \\\$uri \\\$uri/index.html @node;
     }
 
     location @node {
       client_max_body_size 0;
       proxy_pass http://localhost:3000;
-      proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-      proxy_set_header X-Real-IP \$remote_addr;
-      proxy_set_header Host \$http_host;
-      proxy_set_header X-Forwarded-Proto \$scheme;
+      proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+      proxy_set_header X-Real-IP \\\$remote_addr;
+      proxy_set_header Host \\\$http_host;
+      proxy_set_header X-Forwarded-Proto \\\$scheme;
       proxy_max_temp_file_size 0;
       proxy_redirect off;
       proxy_read_timeout 120;
@@ -242,12 +242,12 @@ server {
         v.memory = 512
       end
       s.vm.provision "shell", inline: <<-SHELL
-        apt-get install -y default-jre
+        apt-get install -y default-jre nginx
         
         wget -q -O - https://pkg.jenkins.io/debian/jenkins.io.key | sudo apt-key add -
         echo "deb http://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
         apt-get update
-        apt-get install -y jenkins nginx
+        apt-get install -y jenkins
         
         echo "upstream jenkins {
     server 127.0.0.1:8080;
@@ -264,10 +264,10 @@ server {
     location / {
       client_max_body_size 0;
       proxy_pass http://localhost:8080;
-      proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-      proxy_set_header X-Real-IP \$remote_addr;
-      proxy_set_header Host \$http_host;
-      proxy_set_header X-Forwarded-Proto \$scheme;
+      proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+      proxy_set_header X-Real-IP \\\$remote_addr;
+      proxy_set_header Host \\\$http_host;
+      proxy_set_header X-Forwarded-Proto \\\$scheme;
       proxy_max_temp_file_size 0;
       proxy_redirect off;
       proxy_read_timeout 120;
@@ -278,7 +278,7 @@ server {
         ln -s /etc/nginx/sites-available/jenkins /etc/nginx/sites-enabled/jenkins
         systemctl reload nginx
         
-        cat /var/lib/jenkins/secrets/initialAdminPassword
+        echo "Jenkins Initial Password: $(cat /var/lib/jenkins/secrets/initialAdminPassword)"
       SHELL
   end
 end
