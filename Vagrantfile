@@ -13,17 +13,6 @@ Vagrant.configure(2) do |config|
     apt-get install -y nano build-essential
     updatedb
   SHELL
-
-  config.vm.define "test", primary: true do |s|
-      s.vm.hostname = "test"
-      s.vm.network "private_network", ip: "192.168.111.9"
-      s.vm.provider "virtualbox" do |v|
-        v.memory = 512
-      end
-      s.vm.provision "shell", inline: <<-SHELL
-        
-      SHELL
-  end
   
   config.vm.define "zabbix", primary: true do |s|
       s.vm.hostname = "zabbix"
@@ -114,5 +103,182 @@ Vagrant.configure(2) do |config|
         sshpass -p ansible ssh-copy-id -i /root/.ssh/docker ansible@192.168.111.11
       SHELL
   end
+
+  config.vm.define "gitea", primary: true do |s|
+      s.vm.hostname = "gitea"
+      s.vm.network "private_network", ip: "192.168.111.13"
+      s.vm.provider "virtualbox" do |v|
+        v.memory = 512
+      end
+      s.vm.provision "shell", inline: <<-SHELL
+         apt-get install -y nginx git mariadb-server mariadb-client expect
+         systemctl enable nginx
+         systemctl enable mariadb
+         systemctl start nginx
+         systemctl start mariadb
+         
+         expect -c "
+         set timeout 10
+         spawn mysql_secure_installation
+         
+         expect \"Enter current password for root (enter for none):\"
+         send \"\r\"
+         
+         expect \"Set root password?\"
+         send \"y\r\"
+         
+         expect \"New password:\"
+         send \"root\r\"
+         
+         expect \"Re-enter new password:\"
+         send \"root\r\"
+         
+         expect \"Remove anonymous users?\"
+         send \"y\r\"
+         
+         expect \"Disallow root login remotely?\"
+         send \"y\r\"
+         
+         expect \"Remove test database and access to it?\"
+         send \"y\r\"
+         
+         expect \"Reload privilege tables now?\"
+         send \"y\r\"
+         
+         expect eof
+         "
+         systemctl restart mariadb.service
+         
+         mysql -uroot -proot -e "CREATE DATABASE gitea;"
+         mysql -uroot -proot -e "CREATE USER 'gitea'@'localhost' IDENTIFIED BY 'gitea';"
+         mysql -uroot -proot -e "GRANT ALL ON gitea.* TO 'gitea'@'localhost' IDENTIFIED BY 'gitea' WITH GRANT OPTION;"
+         mysql -uroot -proot -e "FLUSH PRIVILEGES;"
+         
+         adduser --system --shell /bin/bash --gecos 'Git Version Control' --group --disabled-password --home /home/git git
+         mkdir -p /var/lib/gitea/{custom,data,indexers,public,log}
+         chown git:git /var/lib/gitea/{data,indexers,log}
+         chmod 750 /var/lib/gitea/{data,indexers,log}
+         mkdir /etc/gitea
+         chown root:git /etc/gitea
+         chmod 770 /etc/gitea
+         
+         wget https://dl.gitea.io/gitea/1.9/gitea-1.9-linux-amd64 -O /usr/local/bin/gitea
+         chmod a+x /usr/local/bin/gitea
+         
+         echo "[Unit]
+Description=Gitea (Git with a cup of tea)
+After=syslog.target
+After=network.target
+After=mariadb.service
+
+[Service]
+# Modify these two values and uncomment them if you have
+# repos with lots of files and get an HTTP error 500 because
+# of that
+###
+#LimitMEMLOCK=infinity
+#LimitNOFILE=65535
+RestartSec=2s
+Type=simple
+User=git
+Group=git
+WorkingDirectory=/var/lib/gitea/
+ExecStart=/usr/local/bin/gitea web -c /etc/gitea/app.ini
+Restart=always
+Environment=USER=git HOME=/home/git GITEA_WORK_DIR=/var/lib/gitea
+# If you want to bind Gitea to a port below 1024 uncomment
+# the two values below
+###
+#CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+#AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target" > /etc/systemd/system/gitea.service
+
+        systemctl daemon-reload
+        systemctl enable gitea
+        systemctl start gitea
+        
+        rm /etc/nginx/sites-enabled/default
+        
+        echo "upstream gitea {
+    server 127.0.0.1:3000;
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name gitea;
+    root /var/lib/gitea/public;
+    access_log off;
+    error_log off;
+
+    location / {
+      try_files maintain.html \$uri \$uri/index.html @node;
+    }
+
+    location @node {
+      client_max_body_size 0;
+      proxy_pass http://localhost:3000;
+      proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+      proxy_set_header X-Real-IP \$remote_addr;
+      proxy_set_header Host \$http_host;
+      proxy_set_header X-Forwarded-Proto \$scheme;
+      proxy_max_temp_file_size 0;
+      proxy_redirect off;
+      proxy_read_timeout 120;
+    }
+}" > /etc/nginx/sites-available/gitea
+
+        ln -s /etc/nginx/sites-available/gitea /etc/nginx/sites-enabled/gitea
+        systemctl reload nginx
+      SHELL
+  end
   
+  config.vm.define "jenkins", primary: true do |s|
+      s.vm.hostname = "jenkins"
+      s.vm.network "private_network", ip: "192.168.111.14"
+      s.vm.provider "virtualbox" do |v|
+        v.memory = 512
+      end
+      s.vm.provision "shell", inline: <<-SHELL
+        apt-get install -y default-jre
+        
+        wget -q -O - https://pkg.jenkins.io/debian/jenkins.io.key | sudo apt-key add -
+        echo "deb http://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
+        apt-get update
+        apt-get install -y jenkins nginx
+        
+        echo "upstream jenkins {
+    server 127.0.0.1:8080;
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name jenkins;
+    
+    access_log off;
+    error_log off;
+
+    location / {
+      client_max_body_size 0;
+      proxy_pass http://localhost:8080;
+      proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+      proxy_set_header X-Real-IP \$remote_addr;
+      proxy_set_header Host \$http_host;
+      proxy_set_header X-Forwarded-Proto \$scheme;
+      proxy_max_temp_file_size 0;
+      proxy_redirect off;
+      proxy_read_timeout 120;
+    }
+}" > /etc/nginx/sites-available/jenkins
+
+        rm /etc/nginx/sites-enabled/default
+        ln -s /etc/nginx/sites-available/jenkins /etc/nginx/sites-enabled/jenkins
+        systemctl reload nginx
+        
+        cat /var/lib/jenkins/secrets/initialAdminPassword
+      SHELL
+  end
 end
