@@ -96,11 +96,16 @@ Vagrant.configure(2) do |config|
       end
       s.vm.provision "shell", inline: <<-SHELL
         apt-get install -y dirmngr zabbix-agent
+
+        sed -i "s/Server=127.0.0.1/Server=192.168.111.10/" /etc/zabbix/zabbix_agentd.conf
+        sed -i "s/Hostname=Zabbix server/Hostname=ansible/" /etc/zabbix/zabbix_agentd.conf
+        systemctl restart zabbix-agent
+        
         echo "deb http://ppa.launchpad.net/ansible/ansible/ubuntu trusty main" >> /etc/apt/sources.list.d/ansible.list
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 93C4A3FD7BB9C367
         apt-get update
         apt-get install -y ansible
-
+        
         echo "[dockerservers]" >> /etc/ansible/hosts
         echo "docker" >> /etc/ansible/hosts
 
@@ -123,61 +128,66 @@ Vagrant.configure(2) do |config|
         v.memory = 256
       end
       s.vm.provision "shell", inline: <<-SHELL
-         apt-get install -y nginx git mariadb-server mariadb-client expect zabbix-agent
-         systemctl enable nginx
-         systemctl enable mariadb
-         systemctl start nginx
-         systemctl start mariadb
+        apt-get install -y nginx git mariadb-server mariadb-client expect zabbix-agent
+        
+        sed -i "s/Server=127.0.0.1/Server=192.168.111.10/" /etc/zabbix/zabbix_agentd.conf
+        sed -i "s/Hostname=Zabbix server/Hostname=gitea/" /etc/zabbix/zabbix_agentd.conf
+        systemctl restart zabbix-agent
+         
+        systemctl enable nginx
+        systemctl enable mariadb
+        systemctl start nginx
+        systemctl start mariadb
 
-         expect -c "
-         set timeout 10
-         spawn mysql_secure_installation
+        expect -c "
+        set timeout 10
+        spawn mysql_secure_installation
 
-         expect \"Enter current password for root \\\(enter for none\\\):\"
-         send \"\r\"
+        expect \"Enter current password for root \\\(enter for none\\\):\"
+        send \"\r\"
 
-         expect \"Set root password?\"
-         send \"y\r\"
+        expect \"Set root password?\"
+        send \"y\r\"
 
-         expect \"New password:\"
-         send \"root\r\"
+        expect \"New password:\"
+        send \"root\r\"
 
-         expect \"Re-enter new password:\"
-         send \"root\r\"
+        expect \"Re-enter new password:\"
+        send \"root\r\"
 
-         expect \"Remove anonymous users?\"
-         send \"y\r\"
+        expect \"Remove anonymous users?\"
+        send \"y\r\"
 
-         expect \"Disallow root login remotely?\"
-         send \"y\r\"
+        expect \"Disallow root login remotely?\"
+        send \"y\r\"
 
-         expect \"Remove test database and access to it?\"
-         send \"y\r\"
+        expect \"Remove test database and access to it?\"
+        send \"y\r\"
 
-         expect \"Reload privilege tables now?\"
-         send \"y\r\"
+        expect \"Reload privilege tables now?\"
+        send \"y\r\"
 
-         expect eof
-         "
-         systemctl restart mariadb.service
+        expect eof
+        "
+        systemctl restart mariadb.service
 
-         mysql -uroot -proot -e "CREATE DATABASE gitea;"
-         mysql -uroot -proot -e "CREATE USER 'gitea'@'localhost' IDENTIFIED BY 'gitea';"
-         mysql -uroot -proot -e "GRANT ALL ON gitea.* TO 'gitea'@'localhost' IDENTIFIED BY 'gitea' WITH GRANT OPTION;"
-         mysql -uroot -proot -e "FLUSH PRIVILEGES;"
+        mysql -uroot -proot -e "CREATE DATABASE gitea;"
+        mysql -uroot -proot -e "CREATE USER 'gitea'@'localhost' IDENTIFIED BY 'gitea';"
+        mysql -uroot -proot -e "GRANT ALL ON gitea.* TO 'gitea'@'localhost' IDENTIFIED BY 'gitea' WITH GRANT OPTION;"
+        mysql -uroot -proot -e "FLUSH PRIVILEGES;"
 
-         adduser --system --shell /bin/bash --gecos 'Git Version Control' --group --disabled-password --home /home/git git
-         mkdir -p /var/lib/gitea/{custom,data,indexers,public,log}
-         chown git:git /var/lib/gitea/{data,indexers,log}
-         chmod 750 /var/lib/gitea/{data,indexers,log}
-         mkdir /etc/gitea
-         chown root:git /etc/gitea
-         chmod 770 /etc/gitea
+        adduser --system --shell /bin/bash --gecos 'Git Version Control' --group --disabled-password --home /home/git git
+        mkdir -p /var/lib/gitea/{custom,data,indexers,public,log}
+        chown git:git /var/lib/gitea/{data,indexers,log}
+        chmod 750 /var/lib/gitea/{data,indexers,log}
+        mkdir /etc/gitea
+        chown root:git /etc/gitea
+        chmod 770 /etc/gitea
 
-         wget https://dl.gitea.io/gitea/1.9/gitea-1.9-linux-amd64 -O /usr/local/bin/gitea
-         chmod a+x /usr/local/bin/gitea
+        wget https://dl.gitea.io/gitea/1.9/gitea-1.9-linux-amd64 -O /usr/local/bin/gitea
+        chmod a+x /usr/local/bin/gitea
 
-         echo "[Unit]
+        echo "[Unit]
 Description=Gitea (Git with a cup of tea)
 After=syslog.target
 After=network.target
@@ -255,6 +265,10 @@ server {
       end
       s.vm.provision "shell", inline: <<-SHELL
         apt-get install -y default-jre nginx zabbix-agent
+
+        sed -i "s/Server=127.0.0.1/Server=192.168.111.10/" /etc/zabbix/zabbix_agentd.conf
+        sed -i "s/Hostname=Zabbix server/Hostname=jenkins/" /etc/zabbix/zabbix_agentd.conf
+        systemctl restart zabbix-agent
 
         wget -q -O - https://pkg.jenkins.io/debian/jenkins.io.key | sudo apt-key add -
         echo "deb http://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
