@@ -129,11 +129,11 @@ Vagrant.configure(2) do |config|
       end
       s.vm.provision "shell", inline: <<-SHELL
         apt-get install -y nginx git mariadb-server mariadb-client expect zabbix-agent
-        
+
         sed -i "s/Server=127.0.0.1/Server=192.168.111.10/" /etc/zabbix/zabbix_agentd.conf
         sed -i "s/Hostname=Zabbix server/Hostname=gitea/" /etc/zabbix/zabbix_agentd.conf
         systemctl restart zabbix-agent
-         
+
         systemctl enable nginx
         systemctl enable mariadb
         systemctl start nginx
@@ -184,7 +184,7 @@ Vagrant.configure(2) do |config|
         chown root:git /etc/gitea
         chmod 770 /etc/gitea
 
-        wget https://dl.gitea.io/gitea/1.9/gitea-1.9-linux-amd64 -O /usr/local/bin/gitea
+        wget https://dl.gitea.io/gitea/master/gitea-master-linux-amd64 -O /usr/local/bin/gitea
         chmod a+x /usr/local/bin/gitea
 
         echo "[Unit]
@@ -261,13 +261,19 @@ server {
       s.vm.hostname = "jenkins"
       s.vm.network "private_network", ip: "192.168.111.14"
       s.vm.provider "virtualbox" do |v|
-        v.memory = 256
+        v.memory = 384
       end
       s.vm.provision "shell", inline: <<-SHELL
-        apt-get install -y default-jre nginx zabbix-agent
+        apt-get install -y default-jre nginx zabbix-agent ksh curl jq bc
 
         sed -i "s/Server=127.0.0.1/Server=192.168.111.10/" /etc/zabbix/zabbix_agentd.conf
         sed -i "s/Hostname=Zabbix server/Hostname=jenkins/" /etc/zabbix/zabbix_agentd.conf
+        cd /tmp
+        git clone https://github.com/evertton/jenkix.git
+        ./jenkix/deploy_zabbix.sh -j "http://192.168.111.14" -u "evertton" -p "evertton"
+        mkdir -p /etc/zabbix/scripts/agentd/jenkix/tmp
+        chmod -R 777 /etc/zabbix/scripts/agentd/jenkix/tmp
+        echo "zabbix ALL= NOPASSWD: /usr/bin/lsof, /bin/ps" >> /etc/sudoers
         systemctl restart zabbix-agent
 
         wget -q -O - https://pkg.jenkins.io/debian/jenkins.io.key | sudo apt-key add -
@@ -275,36 +281,72 @@ server {
         apt-get update
         apt-get install -y jenkins
 
-        echo "upstream jenkins {
-    server 127.0.0.1:8080;
+        echo 'upstream jenkins {
+  keepalive 32; # keepalive connections
+  server 127.0.0.1:8080; # jenkins ip and port
 }
 
 server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    server_name jenkins;
+  listen          80;       # Listen on port 80 for IPv4 requests
+  server_name     jenkins;
+  
+  #this is the jenkins web root directory (mentioned in the /etc/default/jenkins file)
+  root            /var/run/jenkins/war/;
 
-    access_log off;
-    error_log off;
+  access_log      /var/log/nginx/access.log;
+  error_log       /var/log/nginx/error.log;
+  
+  ignore_invalid_headers off; #pass through headers from Jenkins which are considered invalid by Nginx server.
 
-    location / {
-      client_max_body_size 0;
-      proxy_pass http://localhost:8080;
-      proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
-      proxy_set_header X-Real-IP \\\$remote_addr;
-      proxy_set_header Host \\\$http_host;
-      proxy_set_header X-Forwarded-Proto \\\$scheme;
-      proxy_max_temp_file_size 0;
-      proxy_redirect off;
-      proxy_read_timeout 120;
+  location ~ "^/static/[0-9a-fA-F]{8}\/(.*)$" {
+    #rewrite all static files into requests to the root
+    #E.g /static/12345678/css/something.css will become /css/something.css
+    rewrite "^/static/[0-9a-fA-F]{8}\/(.*)" /$1 last;
+  }
+
+  location /userContent {
+    #have nginx handle all the static requests to the userContent folder files
+    #note : This is the $JENKINS_HOME dir
+    root /var/lib/jenkins/;
+    
+    if (!-f $request_filename){
+      #this file does not exist, might be a directory or a /**view** url
+      rewrite (.*) /$1 last;
+      break;
     }
-}" > /etc/nginx/sites-available/jenkins
+    sendfile on;
+  }
+
+  location / {
+      sendfile off;
+
+      proxy_pass         http://127.0.0.1:8080;
+      proxy_redirect     default;
+      proxy_http_version 1.1;
+      proxy_set_header   Host              $host;
+      proxy_set_header   X-Real-IP         $remote_addr;
+      proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+      proxy_set_header   X-Forwarded-Proto $scheme;
+      proxy_max_temp_file_size 0;
+
+      #this is the maximum upload size
+      client_max_body_size       10m;
+      client_body_buffer_size    128k;
+
+      proxy_connect_timeout      90;
+      proxy_send_timeout         90;
+      proxy_read_timeout         90;
+      proxy_buffering            off;
+      proxy_request_buffering    off; # Required for HTTP CLI commands in Jenkins > 2.54
+      proxy_set_header Connection ""; # Clear for keepalive
+  }
+}' > /etc/nginx/sites-available/jenkins
 
         rm /etc/nginx/sites-enabled/default
         ln -s /etc/nginx/sites-available/jenkins /etc/nginx/sites-enabled/jenkins
         systemctl reload nginx
 
-        sleep 5
+        sleep 10
         echo "Jenkins Initial Password: $(cat /var/lib/jenkins/secrets/initialAdminPassword)"
       SHELL
   end
