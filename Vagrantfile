@@ -99,6 +99,7 @@ Vagrant.configure(2) do |config|
 
         sed -i "s/Server=127.0.0.1/Server=192.168.111.10/" /etc/zabbix/zabbix_agentd.conf
         sed -i "s/Hostname=Zabbix server/Hostname=ansible/" /etc/zabbix/zabbix_agentd.conf
+        systemctl enable zabbix-agent
         systemctl restart zabbix-agent
         
         echo "deb http://ppa.launchpad.net/ansible/ansible/ubuntu trusty main" >> /etc/apt/sources.list.d/ansible.list
@@ -132,6 +133,7 @@ Vagrant.configure(2) do |config|
 
         sed -i "s/Server=127.0.0.1/Server=192.168.111.10/" /etc/zabbix/zabbix_agentd.conf
         sed -i "s/Hostname=Zabbix server/Hostname=gitea/" /etc/zabbix/zabbix_agentd.conf
+        systemctl enable zabbix-agent
         systemctl restart zabbix-agent
 
         systemctl enable nginx
@@ -274,6 +276,7 @@ server {
         mkdir -p /etc/zabbix/scripts/agentd/jenkix/tmp
         chmod -R 777 /etc/zabbix/scripts/agentd/jenkix/tmp
         echo "zabbix ALL= NOPASSWD: /usr/bin/lsof, /bin/ps" >> /etc/sudoers
+        systemctl enable zabbix-agent
         systemctl restart zabbix-agent
 
         wget -q -O - https://pkg.jenkins.io/debian/jenkins.io.key | sudo apt-key add -
