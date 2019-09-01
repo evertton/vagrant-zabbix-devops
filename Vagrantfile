@@ -23,6 +23,9 @@ Vagrant.configure(2) do |config|
     apt-get update -y && apt upgrade -y
     apt-get install -y nano build-essential
     updatedb
+
+    echo "zabbix ALL = NOPASSWD: /bin/systemctl" > /etc/sudoers.d/zabbix
+    chmod 440 /etc/sudoers.d/zabbix
   SHELL
 
   config.vm.define "zabbix", primary: true do |s|
@@ -74,6 +77,15 @@ Vagrant.configure(2) do |config|
 
 	adduser --system --shell /bin/bash --gecos 'Ansible' --group --home /home/ansible ansible
         echo -e "ansible\nansible" | passwd ansible
+        echo "ansible ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+        curl -L "https://github.com/docker/compose/releases/download/1.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        chmod +x /usr/local/bin/docker-compose
+        ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+
+	sed -i "s|-H fd://|-H fd:// -H tcp://0.0.0.0:2375|" /lib/systemd/system/docker.service
+        systemctl daemon-reload
+        systemctl restart docker
 
         docker run \
           --name=dockbix-agent-xxl \
@@ -101,12 +113,12 @@ Vagrant.configure(2) do |config|
         sed -i "s/Hostname=Zabbix server/Hostname=ansible/" /etc/zabbix/zabbix_agentd.conf
         systemctl enable zabbix-agent
         systemctl restart zabbix-agent
-        
+
         echo "deb http://ppa.launchpad.net/ansible/ansible/ubuntu trusty main" >> /etc/apt/sources.list.d/ansible.list
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 93C4A3FD7BB9C367
         apt-get update
         apt-get install -y ansible
-        
+
         echo "[dockerservers]" >> /etc/ansible/hosts
         echo "docker" >> /etc/ansible/hosts
 
@@ -292,13 +304,13 @@ server {
 server {
   listen          80;       # Listen on port 80 for IPv4 requests
   server_name     jenkins;
-  
+
   #this is the jenkins web root directory (mentioned in the /etc/default/jenkins file)
   root            /var/run/jenkins/war/;
 
   access_log      /var/log/nginx/access.log;
   error_log       /var/log/nginx/error.log;
-  
+
   ignore_invalid_headers off; #pass through headers from Jenkins which are considered invalid by Nginx server.
 
   location ~ "^/static/[0-9a-fA-F]{8}\/(.*)$" {
@@ -311,7 +323,7 @@ server {
     #have nginx handle all the static requests to the userContent folder files
     #note : This is the $JENKINS_HOME dir
     root /var/lib/jenkins/;
-    
+
     if (!-f $request_filename){
       #this file does not exist, might be a directory or a /**view** url
       rewrite (.*) /$1 last;
@@ -349,8 +361,34 @@ server {
         ln -s /etc/nginx/sites-available/jenkins /etc/nginx/sites-enabled/jenkins
         systemctl reload nginx
 
-        sleep 10
+        apt-get install -y apt-transport-https ca-certificates curl software-properties-common gnupg2
+        curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add -
+        add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+        apt-get update
+        apt-get install -y docker-ce docker-ce-cli containerd.io
+
+        curl -L "https://github.com/docker/compose/releases/download/1.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        chmod +x /usr/local/bin/docker-compose
+        ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+
+        usermod -aG docker jenkins
+
+	sed -i "s|-H fd://|-H fd:// -H tcp://0.0.0.0:2375|" /lib/systemd/system/docker.service
+        systemctl daemon-reload
+        systemctl restart docker
+
+        export DOCKER_HOST=tcp://127.0.0.1:2375
+	echo "DOCKER_HOST=tcp://127.0.0.1:2375" >> /etc/environment
+
+	apt-get install -y ansible sshpass
+
+        su - jenkins
+        ssh-keygen -N "" -f /var/lib/jenkins/.ssh/docker
+        ssh-keyscan 192.168.111.11 >> /var/lib/jenkins/.ssh/known_hosts
+        sshpass -p ansible ssh-copy-id -i /var/lib/jenkins/.ssh/docker ansible@192.168.111.11
+
         echo "Jenkins Initial Password: $(cat /var/lib/jenkins/secrets/initialAdminPassword)"
       SHELL
   end
 end
+
